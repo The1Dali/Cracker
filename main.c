@@ -54,7 +54,8 @@ int main(int argc, char *argv[])
             print_usage(argv[0]);
             return 0;
 
-        } else {
+        } else 
+        {
             strncpy(cfg.hashfile, argv[i], sizeof(cfg.hashfile) - 1);
         }
     }
