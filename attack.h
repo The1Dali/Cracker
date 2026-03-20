@@ -1,0 +1,9 @@
+#ifndef ATTACK_H
+#define ATTACK_H
+
+#include "config.h"
+#include "hashfile.h"
+
+int run_dictionary(const Config *cfg, Target *targets, size_t n_targets);
+
+#endif
