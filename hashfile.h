@@ -1,13 +1,17 @@
 #ifndef HASHFILE_H
 #define HASHFILE_H
 
-#include <stddef.h>  
+#include <stddef.h>
 
-typedef struct {
-    char  hash_hex[129];    
-    char  username[256];     
-    char  plaintext[256];   
-    int   cracked;          
+
+typedef struct
+{
+    char          hash_hex[129];
+    unsigned char digest[64];
+    size_t        digest_len;
+    char          username[256];
+    char          plaintext[256];
+    int           cracked;
 } Target;
 
 
