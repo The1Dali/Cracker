@@ -19,19 +19,13 @@ static Target *binary_search(Target *targets, size_t n_targets,
         size_t mid = lo + (hi - lo) / 2;
         int    cmp = memcmp(digest, targets[mid].digest, digest_len);
 
-        if (cmp == 0)
-        {
-            return &targets[mid];
-        }
+        if (cmp == 0)       return &targets[mid];
         else if (cmp < 0)
         {
             if (mid == 0) break;
             hi = mid - 1;
         }
-        else
-        {
-            lo = mid + 1;
-        }
+        else                lo = mid + 1;
     }
 
     return NULL;
@@ -53,7 +47,6 @@ static int try_candidate(const Config *cfg, Target *targets, size_t n_targets,
         strncpy(match->plaintext, candidate, 255);
         match->cracked = 1;
         (*n_cracked)++;
-
         output_print_crack(cfg, match);
         return 1;
     }
@@ -105,7 +98,93 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
     }
 
     if (cfg->verbose) fprintf(stderr, "\n");
-
     fclose(wl);
+    return n_cracked;
+}
+
+int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
+{
+    const char *charset     = cfg->charset;
+    size_t      charset_len = strlen(charset);
+
+    if (charset_len == 0)
+    {
+        fprintf(stderr, "Error: charset is empty\n");
+        return 0;
+    }
+
+    int min_len = cfg->min_len;
+    int max_len = cfg->max_len;
+
+    if (min_len < 1)        min_len = 1;
+    if (max_len < min_len)  max_len = min_len;
+    if (max_len > MAX_BF_LEN)
+    {
+        fprintf(stderr, "Warning: max_len capped at %d\n", MAX_BF_LEN);
+        max_len = MAX_BF_LEN;
+    }
+
+    uint64_t count     = 0;
+    int      n_cracked = 0;
+
+    for (int len = min_len; len <= max_len; len++)
+    {
+        if (cfg->verbose)
+        {
+            fprintf(stderr, "[*] Brute forcing length %d...\n", len);
+        }
+
+        size_t indices[MAX_BF_LEN];
+        memset(indices, 0, sizeof(indices));
+
+        char candidate[MAX_BF_LEN + 1];
+        candidate[len] = '\0';
+
+        while (1)
+        {
+            for (int i = 0; i < len; i++)
+            {
+                candidate[i] = charset[indices[i]];
+            }
+
+            try_candidate(cfg, targets, n_targets, candidate, &n_cracked);
+
+            if ((size_t)n_cracked == n_targets)
+            {
+                return n_cracked;
+            }
+
+            count++;
+
+            if (cfg->verbose && count % 500000 == 0)
+            {
+                fprintf(stderr, "\r[*] Tried: %"PRIu64" candidates | Cracked: %d/%zu",
+                        count, n_cracked, n_targets);
+                fflush(stderr);
+            }
+
+            int pos = len - 1;
+
+            while (pos >= 0)
+            {
+                indices[pos]++;
+
+                if (indices[pos] < charset_len)
+                {
+                    break;    
+                }
+
+                indices[pos] = 0;  
+                pos--;
+            }
+
+            if (pos < 0)
+            {
+                break;    
+            }
+        }
+    }
+
+    if (cfg->verbose) fprintf(stderr, "\n");
     return n_cracked;
 }
