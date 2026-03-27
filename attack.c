@@ -171,10 +171,10 @@ int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
 
                 if (indices[pos] < charset_len)
                 {
-                    break;    
+                    break;   
                 }
 
-                indices[pos] = 0;  
+                indices[pos] = 0;   
                 pos--;
             }
 
@@ -187,4 +187,47 @@ int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
 
     if (cfg->verbose) fprintf(stderr, "\n");
     return n_cracked;
+}
+
+int run_auto(const Config *cfg, Target *targets, size_t n_targets)
+{
+    int total_cracked = 0;
+
+    if (cfg->wordlist[0] != '\0')
+    {
+        fprintf(stderr, "[*] Auto mode — phase 1: dictionary attack...\n");
+
+        int cracked = run_dictionary(cfg, targets, n_targets);
+        total_cracked += cracked;
+
+        fprintf(stderr, "[*] Phase 1 complete: %d/%zu cracked\n",
+                total_cracked, n_targets);
+
+        if ((size_t)total_cracked == n_targets)
+        {
+            return total_cracked;
+        }
+    }
+    else
+    {
+        fprintf(stderr, "[*] Auto mode — skipping phase 1 (no wordlist provided)\n");
+    }
+
+    if (cfg->charset[0] != '\0')
+    {
+        fprintf(stderr, "[*] Auto mode — phase 2: brute force on %zu remaining target(s)...\n",
+                n_targets - (size_t)total_cracked);
+
+        int cracked = run_bruteforce(cfg, targets, n_targets);
+        total_cracked += cracked;
+
+        fprintf(stderr, "[*] Phase 2 complete: %d/%zu cracked\n",
+                total_cracked, n_targets);
+    }
+    else
+    {
+        fprintf(stderr, "[*] Auto mode — skipping phase 2 (no charset provided, use -c)\n");
+    }
+
+    return total_cracked;
 }
