@@ -5,6 +5,9 @@
 #include "hashfile.h"
 
 int run_dictionary(const Config *cfg, Target *targets, size_t n_targets);
+
 int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets);
+
+int run_auto(const Config *cfg, Target *targets, size_t n_targets);
 
 #endif
