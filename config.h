@@ -13,6 +13,7 @@ typedef enum
 {
     ATTACK_DICTIONARY  = 0,
     ATTACK_BRUTEFORCE  = 1,
+    ATTACK_AUTO        = 2,
 } AttackMode;
 
 #define CHARSET_LOWER   "abcdefghijklmnopqrstuvwxyz"
