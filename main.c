@@ -13,6 +13,7 @@ static void print_usage(const char *prog_name)
         "\nAttack modes (-a):\n"
         "  0 = Dictionary attack (default)\n"
         "  1 = Brute force\n"
+        "  2 = Auto (dictionary first, then brute force on remainder)\n"
         "\nHash types (-m):\n"
         "  0 = MD5 (default)\n"
         "  1 = SHA-256\n"
@@ -130,6 +131,13 @@ int main(int argc, char *argv[])
         fprintf(stderr, "[*] No charset specified, defaulting to lowercase\n");
     }
 
+    if (cfg.mode == ATTACK_AUTO && cfg.wordlist[0] == '\0' && cfg.charset[0] == '\0')
+    {
+        fprintf(stderr, "Error: auto mode requires at least a wordlist (-w) or charset (-c)\n");
+        print_usage(argv[0]);
+        return 1;
+    }
+
     Target *targets   = NULL;
     size_t  n_targets = 0;
 
@@ -153,6 +161,10 @@ int main(int argc, char *argv[])
         fprintf(stderr, "[*] Starting brute force attack (len %d-%d, charset: %s)...\n",
                 cfg.min_len, cfg.max_len, cfg.charset);
         cracked = run_bruteforce(&cfg, targets, n_targets);
+    }
+    else if (cfg.mode == ATTACK_AUTO)
+    {
+        cracked = run_auto(&cfg, targets, n_targets);
     }
 
     fprintf(stderr, "[*] Done. %d/%zu cracked.\n", cracked, n_targets);
