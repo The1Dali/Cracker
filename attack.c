@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include "attack.h"
 #include "hash.h"
 #include "output.h"
@@ -54,24 +58,92 @@ static int try_candidate(const Config *cfg, Target *targets, size_t n_targets,
     return 0;
 }
 
+static size_t next_word(const char **pos, const char *end,
+                        char *out, size_t out_size)
+{
+    if (*pos >= end) return 0;
+
+    const char *start  = *pos;
+    const char *cursor = start;
+
+    while (cursor < end && *cursor != '\n')
+    {
+        cursor++;
+    }
+
+    const char *line_end = cursor;
+
+    *pos = (cursor < end) ? cursor + 1 : end;
+
+    if (line_end > start && *(line_end - 1) == '\r')
+    {
+        line_end--;
+    }
+
+    size_t word_len = (size_t)(line_end - start);
+
+    if (word_len == 0) return 0;
+
+    if (word_len + 1 > out_size) return 0;
+
+    memcpy(out, start, word_len);
+    out[word_len] = '\0';
+
+    return word_len;
+}
+
 int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
 {
-    FILE *wl = fopen(cfg->wordlist, "r");
-    if (!wl)
+    int fd = open(cfg->wordlist, O_RDONLY);
+    if (fd == -1)
     {
-        perror("run_dictionary: fopen wordlist");
+        perror("run_dictionary: open wordlist");
         return 0;
     }
+
+    struct stat st;
+    if (fstat(fd, &st) == -1)
+    {
+        perror("run_dictionary: fstat");
+        close(fd);
+        return 0;
+    }
+
+    size_t file_size = (size_t)st.st_size;
+
+    if (file_size == 0)
+    {
+        close(fd);
+        return 0;
+    }
+
+    const char *map = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (map == MAP_FAILED)
+    {
+        perror("run_dictionary: mmap");
+        close(fd);
+        return 0;
+    }
+
+    close(fd);
+
+    const char *pos = map;           
+    const char *end = map + file_size;   
 
     char     word[256];
     char     variant[256];
     uint64_t count     = 0;
     int      n_cracked = 0;
 
-    while (fgets(word, sizeof(word), wl))
+    while (1)
     {
-        word[strcspn(word, "\r\n")] = '\0';
-        if (word[0] == '\0') continue;
+        size_t word_len = next_word(&pos, end, word, sizeof(word));
+
+        if (word_len == 0)
+        {
+            if (pos >= end) break;
+            continue;
+        }
 
         for (size_t r = 0; r < rule_count; r++)
         {
@@ -82,7 +154,7 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
 
             if ((size_t)n_cracked == n_targets)
             {
-                fclose(wl);
+                munmap((void *)map, file_size);
                 return n_cracked;
             }
         }
@@ -98,7 +170,8 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
     }
 
     if (cfg->verbose) fprintf(stderr, "\n");
-    fclose(wl);
+
+    munmap((void *)map, file_size);
     return n_cracked;
 }
 
@@ -149,10 +222,7 @@ int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
 
             try_candidate(cfg, targets, n_targets, candidate, &n_cracked);
 
-            if ((size_t)n_cracked == n_targets)
-            {
-                return n_cracked;
-            }
+            if ((size_t)n_cracked == n_targets) return n_cracked;
 
             count++;
 
@@ -164,24 +234,14 @@ int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
             }
 
             int pos = len - 1;
-
             while (pos >= 0)
             {
                 indices[pos]++;
-
-                if (indices[pos] < charset_len)
-                {
-                    break;   
-                }
-
-                indices[pos] = 0;   
+                if (indices[pos] < charset_len) break;
+                indices[pos] = 0;
                 pos--;
             }
-
-            if (pos < 0)
-            {
-                break;    
-            }
+            if (pos < 0) break;
         }
     }
 
@@ -196,17 +256,12 @@ int run_auto(const Config *cfg, Target *targets, size_t n_targets)
     if (cfg->wordlist[0] != '\0')
     {
         fprintf(stderr, "[*] Auto mode — phase 1: dictionary attack...\n");
-
         int cracked = run_dictionary(cfg, targets, n_targets);
         total_cracked += cracked;
-
         fprintf(stderr, "[*] Phase 1 complete: %d/%zu cracked\n",
                 total_cracked, n_targets);
 
-        if ((size_t)total_cracked == n_targets)
-        {
-            return total_cracked;
-        }
+        if ((size_t)total_cracked == n_targets) return total_cracked;
     }
     else
     {
@@ -217,10 +272,8 @@ int run_auto(const Config *cfg, Target *targets, size_t n_targets)
     {
         fprintf(stderr, "[*] Auto mode — phase 2: brute force on %zu remaining target(s)...\n",
                 n_targets - (size_t)total_cracked);
-
         int cracked = run_bruteforce(cfg, targets, n_targets);
         total_cracked += cracked;
-
         fprintf(stderr, "[*] Phase 2 complete: %d/%zu cracked\n",
                 total_cracked, n_targets);
     }
