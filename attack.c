@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include "attack.h"
 #include "hash.h"
 #include "output.h"
@@ -40,13 +41,13 @@ static Target *binary_search(Target *targets, size_t n_targets,
 
 typedef struct
 {
-    const char     *slice_start;
-    const char     *slice_end;
-    const Config   *cfg;
-    Target         *targets;
-    size_t          n_targets;
+    const char      *slice_start;
+    const char      *slice_end;
+    const Config    *cfg;
+    Target          *targets;
+    size_t           n_targets;
     pthread_mutex_t *mutex;
-    int             *n_cracked;
+    _Atomic int     *n_cracked;
 } WorkerArgs;
 
 static size_t next_word(const char **pos, const char *end,
@@ -134,11 +135,15 @@ static void *dict_worker(void *arg)
             {
                 strncpy(match->plaintext, variant, 255);
                 match->cracked = 1;
+                pthread_mutex_unlock(args->mutex);
+
                 (*args->n_cracked)++;
                 output_print_crack(args->cfg, match);
             }
-
-            pthread_mutex_unlock(args->mutex);
+            else
+            {
+                pthread_mutex_unlock(args->mutex);
+            }
         }
     }
 
@@ -179,7 +184,7 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
 
     close(fd);
 
-    int             n_cracked = 0;
+    _Atomic int     n_cracked = 0;
     pthread_mutex_t mutex     = PTHREAD_MUTEX_INITIALIZER;
 
     size_t     slice_size = file_size / NUM_THREADS;
@@ -206,6 +211,7 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
         if (pthread_create(&threads[t], NULL, dict_worker, &args[t]) != 0)
         {
             perror("run_dictionary: pthread_create");
+
             args[t].slice_start = args[t].slice_end;
         }
     }
@@ -219,7 +225,8 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
     munmap((void *)map, file_size);
 
     if (cfg->verbose) fprintf(stderr, "\n");
-    return n_cracked;
+
+    return atomic_load(&n_cracked);
 }
 
 int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
