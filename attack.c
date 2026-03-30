@@ -5,10 +5,13 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <pthread.h>
 #include "attack.h"
 #include "hash.h"
 #include "output.h"
 #include "rule.h"
+
+#define NUM_THREADS 4
 
 static Target *binary_search(Target *targets, size_t n_targets,
                               const unsigned char *digest, size_t digest_len)
@@ -35,28 +38,16 @@ static Target *binary_search(Target *targets, size_t n_targets,
     return NULL;
 }
 
-static int try_candidate(const Config *cfg, Target *targets, size_t n_targets,
-                         const char *candidate, int *n_cracked)
+typedef struct
 {
-    unsigned char digest[64];
-
-    size_t digest_len = hash_compute_raw(cfg->algo, candidate, strlen(candidate),
-                                         digest);
-    if (digest_len == 0) return 0;
-
-    Target *match = binary_search(targets, n_targets, digest, digest_len);
-
-    if (match != NULL && !match->cracked)
-    {
-        strncpy(match->plaintext, candidate, 255);
-        match->cracked = 1;
-        (*n_cracked)++;
-        output_print_crack(cfg, match);
-        return 1;
-    }
-
-    return 0;
-}
+    const char     *slice_start;
+    const char     *slice_end;
+    const Config   *cfg;
+    Target         *targets;
+    size_t          n_targets;
+    pthread_mutex_t *mutex;
+    int             *n_cracked;
+} WorkerArgs;
 
 static size_t next_word(const char **pos, const char *end,
                         char *out, size_t out_size)
@@ -72,7 +63,6 @@ static size_t next_word(const char **pos, const char *end,
     }
 
     const char *line_end = cursor;
-
     *pos = (cursor < end) ? cursor + 1 : end;
 
     if (line_end > start && *(line_end - 1) == '\r')
@@ -82,58 +72,36 @@ static size_t next_word(const char **pos, const char *end,
 
     size_t word_len = (size_t)(line_end - start);
 
-    if (word_len == 0) return 0;
-
+    if (word_len == 0)           return 0;
     if (word_len + 1 > out_size) return 0;
 
     memcpy(out, start, word_len);
     out[word_len] = '\0';
-
     return word_len;
 }
 
-int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
+static const char *align_to_next_line(const char *ptr, const char *start,
+                                      const char *end)
 {
-    int fd = open(cfg->wordlist, O_RDONLY);
-    if (fd == -1)
+    if (ptr == start) return ptr;
+
+    while (ptr < end && *ptr != '\n')
     {
-        perror("run_dictionary: open wordlist");
-        return 0;
+        ptr++;
     }
 
-    struct stat st;
-    if (fstat(fd, &st) == -1)
-    {
-        perror("run_dictionary: fstat");
-        close(fd);
-        return 0;
-    }
+    return (ptr < end) ? ptr + 1 : end;
+}
 
-    size_t file_size = (size_t)st.st_size;
+static void *dict_worker(void *arg)
+{
+    WorkerArgs *args = (WorkerArgs *)arg;
 
-    if (file_size == 0)
-    {
-        close(fd);
-        return 0;
-    }
+    const char *pos = args->slice_start;
+    const char *end = args->slice_end;
 
-    const char *map = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (map == MAP_FAILED)
-    {
-        perror("run_dictionary: mmap");
-        close(fd);
-        return 0;
-    }
-
-    close(fd);
-
-    const char *pos = map;           
-    const char *end = map + file_size;   
-
-    char     word[256];
-    char     variant[256];
-    uint64_t count     = 0;
-    int      n_cracked = 0;
+    char word[256];
+    char variant[256];
 
     while (1)
     {
@@ -150,28 +118,107 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
             size_t vlen = rule_table[r].fn(word, variant, sizeof(variant));
             if (vlen == 0) continue;
 
-            try_candidate(cfg, targets, n_targets, variant, &n_cracked);
+            unsigned char digest[64];
+            size_t digest_len = hash_compute_raw(args->cfg->algo,
+                                                 variant, vlen, digest);
+            if (digest_len == 0) continue;
 
-            if ((size_t)n_cracked == n_targets)
+            Target *match = binary_search(args->targets, args->n_targets,
+                                          digest, digest_len);
+
+            if (match == NULL) continue;
+
+            pthread_mutex_lock(args->mutex);
+
+            if (!match->cracked)
             {
-                munmap((void *)map, file_size);
-                return n_cracked;
+                strncpy(match->plaintext, variant, 255);
+                match->cracked = 1;
+                (*args->n_cracked)++;
+                output_print_crack(args->cfg, match);
             }
-        }
 
-        count++;
-
-        if (cfg->verbose && count % 500000 == 0)
-        {
-            fprintf(stderr, "\r[*] Tried: %"PRIu64" words | Cracked: %d/%zu",
-                    count, n_cracked, n_targets);
-            fflush(stderr);
+            pthread_mutex_unlock(args->mutex);
         }
     }
 
-    if (cfg->verbose) fprintf(stderr, "\n");
+    return NULL;
+}
 
+int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
+{
+    int fd = open(cfg->wordlist, O_RDONLY);
+    if (fd == -1)
+    {
+        perror("run_dictionary: open");
+        return 0;
+    }
+
+    struct stat st;
+    if (fstat(fd, &st) == -1)
+    {
+        perror("run_dictionary: fstat");
+        close(fd);
+        return 0;
+    }
+
+    size_t file_size = (size_t)st.st_size;
+    if (file_size == 0)
+    {
+        close(fd);
+        return 0;
+    }
+
+    const char *map = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (map == MAP_FAILED)
+    {
+        perror("run_dictionary: mmap");
+        close(fd);
+        return 0;
+    }
+
+    close(fd);
+
+    int             n_cracked = 0;
+    pthread_mutex_t mutex     = PTHREAD_MUTEX_INITIALIZER;
+
+    size_t     slice_size = file_size / NUM_THREADS;
+    pthread_t  threads[NUM_THREADS];
+    WorkerArgs args[NUM_THREADS];
+
+    for (int t = 0; t < NUM_THREADS; t++)
+    {
+        const char *raw_start = map + (size_t)t * slice_size;
+
+        const char *raw_end = (t == NUM_THREADS - 1)
+                              ? map + file_size
+                              : map + (size_t)(t + 1) * slice_size;
+
+        args[t].slice_start = align_to_next_line(raw_start, map,
+                                                  map + file_size);
+        args[t].slice_end   = raw_end;
+        args[t].cfg         = cfg;
+        args[t].targets     = targets;
+        args[t].n_targets   = n_targets;
+        args[t].mutex       = &mutex;
+        args[t].n_cracked   = &n_cracked;
+
+        if (pthread_create(&threads[t], NULL, dict_worker, &args[t]) != 0)
+        {
+            perror("run_dictionary: pthread_create");
+            args[t].slice_start = args[t].slice_end;
+        }
+    }
+
+    for (int t = 0; t < NUM_THREADS; t++)
+    {
+        pthread_join(threads[t], NULL);
+    }
+
+    pthread_mutex_destroy(&mutex);
     munmap((void *)map, file_size);
+
+    if (cfg->verbose) fprintf(stderr, "\n");
     return n_cracked;
 }
 
@@ -203,9 +250,7 @@ int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
     for (int len = min_len; len <= max_len; len++)
     {
         if (cfg->verbose)
-        {
             fprintf(stderr, "[*] Brute forcing length %d...\n", len);
-        }
 
         size_t indices[MAX_BF_LEN];
         memset(indices, 0, sizeof(indices));
@@ -216,16 +261,27 @@ int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
         while (1)
         {
             for (int i = 0; i < len; i++)
-            {
                 candidate[i] = charset[indices[i]];
-            }
 
-            try_candidate(cfg, targets, n_targets, candidate, &n_cracked);
+            unsigned char digest[64];
+            size_t digest_len = hash_compute_raw(cfg->algo, candidate,
+                                                 strlen(candidate), digest);
+            if (digest_len > 0)
+            {
+                Target *match = binary_search(targets, n_targets,
+                                              digest, digest_len);
+                if (match != NULL && !match->cracked)
+                {
+                    strncpy(match->plaintext, candidate, 255);
+                    match->cracked = 1;
+                    n_cracked++;
+                    output_print_crack(cfg, match);
+                }
+            }
 
             if ((size_t)n_cracked == n_targets) return n_cracked;
 
             count++;
-
             if (cfg->verbose && count % 500000 == 0)
             {
                 fprintf(stderr, "\r[*] Tried: %"PRIu64" candidates | Cracked: %d/%zu",
@@ -260,7 +316,6 @@ int run_auto(const Config *cfg, Target *targets, size_t n_targets)
         total_cracked += cracked;
         fprintf(stderr, "[*] Phase 1 complete: %d/%zu cracked\n",
                 total_cracked, n_targets);
-
         if ((size_t)total_cracked == n_targets) return total_cracked;
     }
     else
