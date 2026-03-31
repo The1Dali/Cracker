@@ -35,6 +35,7 @@ typedef struct
     int         min_len;
     int         max_len;
     int         verbose;
+    int         benchmark;
 } Config;
 
 #endif
