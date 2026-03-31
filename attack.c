@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <time.h>
 #include "attack.h"
 #include "hash.h"
 #include "output.h"
@@ -38,7 +39,6 @@ static Target *binary_search(Target *targets, size_t n_targets,
 
     return NULL;
 }
-
 typedef struct
 {
     const char      *slice_start;
@@ -211,7 +211,6 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
         if (pthread_create(&threads[t], NULL, dict_worker, &args[t]) != 0)
         {
             perror("run_dictionary: pthread_create");
-
             args[t].slice_start = args[t].slice_end;
         }
     }
@@ -345,4 +344,53 @@ int run_auto(const Config *cfg, Target *targets, size_t n_targets)
     }
 
     return total_cracked;
+}
+
+void run_benchmark(int duration_secs)
+{
+    const HashAlgo algos[]      = { HASH_MD5, HASH_SHA256, HASH_SHA512, HASH_NTLM };
+    const char    *algo_names[] = { "MD5",    "SHA-256",   "SHA-512",   "NTLM"    };
+    const int      n_algos      = 4;
+
+    const char   *input     = "benchmark_test_input";
+    size_t        input_len = strlen(input);
+
+    fprintf(stderr, "[*] Benchmark mode — hashing for %d second(s) per algorithm\n\n",
+            duration_secs);
+
+    for (int a = 0; a < n_algos; a++)
+    {
+        unsigned char  digest[64];
+        uint64_t       count = 0;
+        struct timespec start, now;
+
+        clock_gettime(CLOCK_MONOTONIC, &start);
+
+        while (1)
+        {
+            hash_compute_raw(algos[a], input, input_len, digest);
+            count++;
+
+            if (count % 100000 == 0)
+            {
+                clock_gettime(CLOCK_MONOTONIC, &now);
+
+                double elapsed = (double)(now.tv_sec  - start.tv_sec)
+                               + (double)(now.tv_nsec - start.tv_nsec)
+                               / 1000000000.0;
+
+                if (elapsed >= (double)duration_secs)
+                {
+                    double hps = (double)count / elapsed;
+
+                    fprintf(stdout, "%-10s %12.0f H/s  (last digest byte: %02x)\n",
+                            algo_names[a], hps, digest[0]);
+                    fflush(stdout);
+                    break;
+                }
+            }
+        }
+    }
+
+    fprintf(stderr, "\n[*] Benchmark complete.\n");
 }
