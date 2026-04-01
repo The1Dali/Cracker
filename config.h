@@ -14,7 +14,10 @@ typedef enum
     ATTACK_DICTIONARY  = 0,
     ATTACK_BRUTEFORCE  = 1,
     ATTACK_AUTO        = 2,
+    ATTACK_MASK        = 3,
 } AttackMode;
+
+#define CHARSET_SYMBOLS  "!@#$%^&*"
 
 #define CHARSET_LOWER   "abcdefghijklmnopqrstuvwxyz"
 #define CHARSET_UPPER   "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -32,6 +35,7 @@ typedef struct
     char        wordlist[512];
     char        charset[128];
     char        outfile[512];
+    char        mask[256];
     int         min_len;
     int         max_len;
     int         verbose;
