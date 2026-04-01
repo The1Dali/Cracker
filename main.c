@@ -30,6 +30,11 @@ static void print_usage(const char *prog_name)
         "                Or supply any custom string: -c 'abc123'\n"
         "  --min-len <n> Minimum length for brute force (default: 1)\n"
         "  --max-len <n> Maximum length for brute force (default: 4)\n"
+        "  --mask <mask> Mask for mask attack. Placeholders:\n"
+        "                  ?l = lowercase, ?u = uppercase\n"
+        "                  ?d = digits,    ?s = symbols\n"
+        "                  ?a = all,        ?? = literal ?\n"
+        "                Example: --mask '?u?l?l?l?d?d'\n"
         "  -o <path>     Write cracked pairs to file\n"
         "  -v            Verbose — show live progress\n"
         "  -b            Benchmark — measure hash speed for all algorithms and exit\n"
@@ -80,7 +85,6 @@ int main(int argc, char *argv[])
         else if (strcmp(argv[i], "-c") == 0)
         {
             if (i + 1 >= argc) { fprintf(stderr, "Error: -c requires a value\n"); return 1; }
-
             strncpy(cfg.charset, resolve_charset(argv[++i]), sizeof(cfg.charset) - 1);
         }
         else if (strcmp(argv[i], "--min-len") == 0)
@@ -92,6 +96,12 @@ int main(int argc, char *argv[])
         {
             if (i + 1 >= argc) { fprintf(stderr, "Error: --max-len requires a value\n"); return 1; }
             cfg.max_len = atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--mask") == 0)
+        {
+            if (i + 1 >= argc) { fprintf(stderr, "Error: --mask requires a value\n"); return 1; }
+            strncpy(cfg.mask, argv[++i], sizeof(cfg.mask) - 1);
+            cfg.mode = ATTACK_MASK;
         }
         else if (strcmp(argv[i], "-o") == 0)
         {
@@ -139,7 +149,6 @@ int main(int argc, char *argv[])
 
     if (cfg.mode == ATTACK_BRUTEFORCE && cfg.charset[0] == '\0')
     {
-
         strncpy(cfg.charset, CHARSET_LOWER, sizeof(cfg.charset) - 1);
         fprintf(stderr, "[*] No charset specified, defaulting to lowercase\n");
     }
@@ -178,6 +187,11 @@ int main(int argc, char *argv[])
     else if (cfg.mode == ATTACK_AUTO)
     {
         cracked = run_auto(&cfg, targets, n_targets);
+    }
+    else if (cfg.mode == ATTACK_MASK)
+    {
+        fprintf(stderr, "[*] Starting mask attack (%s)...\n", cfg.mask);
+        cracked = run_mask(&cfg, targets, n_targets);
     }
 
     fprintf(stderr, "[*] Done. %d/%zu cracked.\n", cracked, n_targets);
