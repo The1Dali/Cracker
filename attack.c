@@ -39,6 +39,7 @@ static Target *binary_search(Target *targets, size_t n_targets,
 
     return NULL;
 }
+
 typedef struct
 {
     const char      *slice_start;
@@ -393,4 +394,130 @@ void run_benchmark(int duration_secs)
     }
 
     fprintf(stderr, "\n[*] Benchmark complete.\n");
+}
+
+int run_mask(const Config *cfg, Target *targets, size_t n_targets)
+{
+    const char *mask = cfg->mask;
+
+    if (mask[0] == '\0')
+    {
+        fprintf(stderr, "Error: no mask specified (use --mask)\n");
+        return 0;
+    }
+
+    const char *pos_charset[MAX_BF_LEN];
+    size_t      pos_len[MAX_BF_LEN];
+    char        fixed_bufs[MAX_BF_LEN][2];
+    int         n_pos = 0;
+
+    const char *m = mask;
+
+    while (*m != '\0')
+    {
+        if (n_pos >= MAX_BF_LEN)
+        {
+            fprintf(stderr, "Error: mask is longer than MAX_BF_LEN (%d)\n",
+                    MAX_BF_LEN);
+            return 0;
+        }
+
+        if (*m == '?' && *(m + 1) != '\0')
+        {
+            char type = *(m + 1);
+            m += 2;
+
+            switch (type)
+            {
+                case 'l': pos_charset[n_pos] = CHARSET_LOWER;   break;
+                case 'u': pos_charset[n_pos] = CHARSET_UPPER;   break;
+                case 'd': pos_charset[n_pos] = CHARSET_DIGITS;  break;
+                case 's': pos_charset[n_pos] = CHARSET_SYMBOLS; break;
+                case 'a': pos_charset[n_pos] = CHARSET_ALL;     break;
+                case '?':
+                    fixed_bufs[n_pos][0] = '?';
+                    fixed_bufs[n_pos][1] = '\0';
+                    pos_charset[n_pos]   = fixed_bufs[n_pos];
+                    break;
+                default:
+                    fprintf(stderr, "Error: unknown mask placeholder '?%c'\n",
+                            type);
+                    return 0;
+            }
+        }
+        else
+        {
+            fixed_bufs[n_pos][0] = *m;
+            fixed_bufs[n_pos][1] = '\0';
+            pos_charset[n_pos]   = fixed_bufs[n_pos];
+            m++;
+        }
+
+        pos_len[n_pos] = strlen(pos_charset[n_pos]);
+        n_pos++;
+    }
+
+    if (n_pos == 0)
+    {
+        fprintf(stderr, "Error: mask produced zero positions\n");
+        return 0;
+    }
+
+    fprintf(stderr, "[*] Mask '%s' — %d position(s)\n", mask, n_pos);
+
+    size_t   indices[MAX_BF_LEN];
+    char     candidate[MAX_BF_LEN + 1];
+    uint64_t count     = 0;
+    int      n_cracked = 0;
+
+    memset(indices, 0, sizeof(indices));
+    candidate[n_pos] = '\0';
+
+    while (1)
+    {
+        for (int i = 0; i < n_pos; i++)
+        {
+            candidate[i] = pos_charset[i][indices[i]];
+        }
+
+        unsigned char digest[64];
+        size_t digest_len = hash_compute_raw(cfg->algo, candidate,
+                                             (size_t)n_pos, digest);
+        if (digest_len > 0)
+        {
+            Target *match = binary_search(targets, n_targets,
+                                          digest, digest_len);
+            if (match != NULL && !match->cracked)
+            {
+                strncpy(match->plaintext, candidate, 255);
+                match->cracked = 1;
+                n_cracked++;
+                output_print_crack(cfg, match);
+            }
+        }
+
+        if ((size_t)n_cracked == n_targets) return n_cracked;
+
+        count++;
+
+        if (cfg->verbose && count % 500000 == 0)
+        {
+            fprintf(stderr, "\r[*] Tried: %"PRIu64" candidates | Cracked: %d/%zu",
+                    count, n_cracked, n_targets);
+            fflush(stderr);
+        }
+
+        int pos = n_pos - 1;
+        while (pos >= 0)
+        {
+            indices[pos]++;
+            if (indices[pos] < pos_len[pos]) break;
+            indices[pos] = 0;
+            pos--;
+        }
+        if (pos < 0) break;    
+    }
+
+    if (cfg->verbose) fprintf(stderr, "\n");
+    return n_cracked;
 }
