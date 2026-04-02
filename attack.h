@@ -12,4 +12,6 @@ int run_auto(const Config *cfg, Target *targets, size_t n_targets);
 
 void run_benchmark(int duration_secs);
 
+int run_mask(const Config *cfg, Target *targets, size_t n_targets);
+
 #endif
