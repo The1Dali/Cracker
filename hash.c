@@ -4,7 +4,6 @@
 #include <openssl/sha.h>
 #include "hash.h"
 
-
 static void bytes_to_hex(const unsigned char *bytes, size_t len, char *out)
 {
     for (size_t i = 0; i < len; i++)
@@ -13,7 +12,6 @@ static void bytes_to_hex(const unsigned char *bytes, size_t len, char *out)
     }
     out[len * 2] = '\0';
 }
-
 
 size_t hex_to_bytes(const char *hex, unsigned char *out)
 {
@@ -32,7 +30,6 @@ size_t hex_to_bytes(const char *hex, unsigned char *out)
     return count;
 }
 
-
 static void ntlm_hash(const unsigned char *input, size_t len, unsigned char *out)
 {
     (void)input;
@@ -40,17 +37,17 @@ static void ntlm_hash(const unsigned char *input, size_t len, unsigned char *out
     memset(out, 0, 16);
 }
 
-
-static const HashDef hash_table[] =
+const HashDef hash_table[] =
 {
-    /* HASH_MD5    = 0 */ { "MD5",     16, (HashFn)MD5    },
-    /* HASH_SHA256 = 1 */ { "SHA-256", 32, (HashFn)SHA256 },
-    /* HASH_SHA512 = 2 */ { "SHA-512", 64, (HashFn)SHA512 },
-    /* HASH_NTLM   = 3 */ { "NTLM",   16, ntlm_hash      },
+    { "MD5",     16, (HashFn)MD5    },
+    { "SHA-256", 32, (HashFn)SHA256 },
+    { "SHA-512", 64, (HashFn)SHA512 },
+    { "NTLM",   16, ntlm_hash      },
 };
 
-#define HASH_TABLE_SIZE (sizeof(hash_table) / sizeof(hash_table[0]))
+const size_t hash_table_size = sizeof(hash_table) / sizeof(hash_table[0]);
 
+#define HASH_TABLE_SIZE hash_table_size
 
 size_t hash_compute_raw(HashAlgo algo, const char *input, size_t len,
                         unsigned char *out_raw)
@@ -66,7 +63,6 @@ size_t hash_compute_raw(HashAlgo algo, const char *input, size_t len,
 
     return def->digest_len;
 }
-
 
 void hash_compute(HashAlgo algo, const char *input, size_t len, char *out_hex)
 {
