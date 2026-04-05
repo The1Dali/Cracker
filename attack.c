@@ -515,9 +515,80 @@ int run_mask(const Config *cfg, Target *targets, size_t n_targets)
             indices[pos] = 0;
             pos--;
         }
-        if (pos < 0) break;    
+        if (pos < 0) break;   
     }
 
     if (cfg->verbose) fprintf(stderr, "\n");
     return n_cracked;
+}
+
+int run_autodetect(Config *cfg, Target *targets, size_t n_targets)
+{
+    if (n_targets == 0)
+    {
+        fprintf(stderr, "Error: no targets loaded\n");
+        return 0;
+    }
+
+    size_t hex_len  = strlen(targets[0].hash_hex);
+    size_t byte_len = hex_len / 2;
+
+    fprintf(stderr, "[*] Autodetect — observed hex length %zu (%zu bytes)\n",
+            hex_len, byte_len);
+
+    HashAlgo candidates[8];
+    int      n_candidates = 0;
+
+    for (size_t i = 0; i < hash_table_size; i++)
+    {
+        if (hash_table[i].digest_len == byte_len)
+        {
+            candidates[n_candidates++] = (HashAlgo)i;
+        }
+    }
+
+    if (n_candidates == 0)
+    {
+        fprintf(stderr, "Error: no known algorithm produces %zu-byte digests\n",
+                byte_len);
+        return 0;
+    }
+
+    if (n_candidates == 1)
+    {
+        cfg->algo = candidates[0];
+        fprintf(stderr, "[*] Autodetect — identified: %s\n",
+                hash_table[candidates[0]].name);
+        return run_dictionary(cfg, targets, n_targets);
+    }
+
+    fprintf(stderr, "[*] Autodetect — %d algorithms match length %zu, trying each:\n",
+            n_candidates, byte_len);
+
+    for (int c = 0; c < n_candidates; c++)
+    {
+        cfg->algo = candidates[c];
+        fprintf(stderr, "[*] Trying %s...\n", hash_table[candidates[c]].name);
+
+        for (size_t t = 0; t < n_targets; t++)
+        {
+            targets[t].cracked      = 0;
+            targets[t].plaintext[0] = '\0';
+        }
+
+        int cracked = run_dictionary(cfg, targets, n_targets);
+
+        if (cracked > 0)
+        {
+            fprintf(stderr, "[*] Autodetect — %s produced %d crack(s), using it\n",
+                    hash_table[candidates[c]].name, cracked);
+            return cracked;
+        }
+
+        fprintf(stderr, "[*] %s produced no cracks, trying next...\n",
+                hash_table[candidates[c]].name);
+    }
+
+    fprintf(stderr, "[*] Autodetect — no algorithm produced cracks\n");
+    return 0;
 }
