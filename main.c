@@ -15,10 +15,11 @@ static void print_usage(const char *prog_name)
         "  1 = Brute force\n"
         "  2 = Auto (dictionary first, then brute force on remainder)\n"
         "\nHash types (-m):\n"
-        "  0 = MD5 (default)\n"
-        "  1 = SHA-256\n"
-        "  2 = SHA-512\n"
-        "  3 = NTLM\n"
+        "  0    = MD5 (default)\n"
+        "  1    = SHA-256\n"
+        "  2    = SHA-512\n"
+        "  3    = NTLM\n"
+        "  auto = detect from hash length, try all matches\n"
         "\nOptions:\n"
         "  -w <path>     Wordlist path (dictionary mode)\n"
         "  -c <charset>  Charset for brute force. Presets:\n"
@@ -70,7 +71,15 @@ int main(int argc, char *argv[])
         if (strcmp(argv[i], "-m") == 0)
         {
             if (i + 1 >= argc) { fprintf(stderr, "Error: -m requires a value\n"); return 1; }
-            cfg.algo = (HashAlgo)atoi(argv[++i]);
+            i++;
+            if (strcmp(argv[i], "auto") == 0)
+            {
+                cfg.mode = ATTACK_AUTODETECT;
+            }
+            else
+            {
+                cfg.algo = (HashAlgo)atoi(argv[i]);
+            }
         }
         else if (strcmp(argv[i], "-a") == 0)
         {
@@ -192,6 +201,11 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "[*] Starting mask attack (%s)...\n", cfg.mask);
         cracked = run_mask(&cfg, targets, n_targets);
+    }
+    else if (cfg.mode == ATTACK_AUTODETECT)
+    {
+        fprintf(stderr, "[*] Starting autodetect attack...\n");
+        cracked = run_autodetect(&cfg, targets, n_targets);
     }
 
     fprintf(stderr, "[*] Done. %d/%zu cracked.\n", cracked, n_targets);
