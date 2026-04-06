@@ -31,11 +31,12 @@ static void print_usage(const char *prog_name)
         "                Or supply any custom string: -c 'abc123'\n"
         "  --min-len <n> Minimum length for brute force (default: 1)\n"
         "  --max-len <n> Maximum length for brute force (default: 4)\n"
-        "  --mask <mask> Mask for mask attack. Placeholders:\n"
-        "                  ?l = lowercase, ?u = uppercase\n"
-        "                  ?d = digits,    ?s = symbols\n"
-        "                  ?a = all,        ?? = literal ?\n"
-        "                Example: --mask '?u?l?l?l?d?d'\n"
+        "  --mask <mask>   Mask for mask attack. Placeholders:\n"
+        "                    ?l = lowercase, ?u = uppercase\n"
+        "                    ?d = digits,    ?s = symbols\n"
+        "                    ?a = all,        ?? = literal ?\n"
+        "                  Example: --mask '?u?l?l?l?d?d'\n"
+        "  --rainbow <path> Rainbow table file (hash:plaintext per line)\n"
         "  -o <path>     Write cracked pairs to file\n"
         "  -v            Verbose — show live progress\n"
         "  -b            Benchmark — measure hash speed for all algorithms and exit\n"
@@ -111,6 +112,12 @@ int main(int argc, char *argv[])
             if (i + 1 >= argc) { fprintf(stderr, "Error: --mask requires a value\n"); return 1; }
             strncpy(cfg.mask, argv[++i], sizeof(cfg.mask) - 1);
             cfg.mode = ATTACK_MASK;
+        }
+        else if (strcmp(argv[i], "--rainbow") == 0)
+        {
+            if (i + 1 >= argc) { fprintf(stderr, "Error: --rainbow requires a value\n"); return 1; }
+            strncpy(cfg.rainbow_path, argv[++i], sizeof(cfg.rainbow_path) - 1);
+            cfg.mode = ATTACK_RAINBOW;
         }
         else if (strcmp(argv[i], "-o") == 0)
         {
@@ -206,6 +213,11 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "[*] Starting autodetect attack...\n");
         cracked = run_autodetect(&cfg, targets, n_targets);
+    }
+    else if (cfg.mode == ATTACK_RAINBOW)
+    {
+        fprintf(stderr, "[*] Starting rainbow table attack...\n");
+        cracked = run_rainbow(&cfg, targets, n_targets);
     }
 
     fprintf(stderr, "[*] Done. %d/%zu cracked.\n", cracked, n_targets);
