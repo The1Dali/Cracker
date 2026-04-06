@@ -15,6 +15,8 @@ typedef enum
     ATTACK_BRUTEFORCE  = 1,
     ATTACK_AUTO        = 2,
     ATTACK_MASK        = 3,
+    ATTACK_AUTODETECT  = 4,   
+    ATTACK_RAINBOW     = 5,   
 } AttackMode;
 
 #define CHARSET_SYMBOLS  "!@#$%^&*"
@@ -36,6 +38,7 @@ typedef struct
     char        charset[128];
     char        outfile[512];
     char        mask[256];
+    char        rainbow_path[512];
     int         min_len;
     int         max_len;
     int         verbose;
