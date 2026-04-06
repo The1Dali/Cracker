@@ -12,6 +12,7 @@
 #include "hash.h"
 #include "output.h"
 #include "rule.h"
+#include "rainbow.h"
 
 #define NUM_THREADS 4
 
@@ -591,4 +592,44 @@ int run_autodetect(Config *cfg, Target *targets, size_t n_targets)
 
     fprintf(stderr, "[*] Autodetect — no algorithm produced cracks\n");
     return 0;
+}
+
+int run_rainbow(const Config *cfg, Target *targets, size_t n_targets)
+{
+    RainbowMap rmap;
+    memset(&rmap, 0, sizeof(rmap));
+
+    fprintf(stderr, "[*] Loading rainbow table: %s\n", cfg->rainbow_path);
+
+    if (rainbow_load(cfg->rainbow_path, &rmap) != 0)
+    {
+        fprintf(stderr, "Error: could not load rainbow table\n");
+        return 0;
+    }
+
+    fprintf(stderr, "[*] Loaded %zu rainbow table entries\n", rmap.n_entries);
+
+    int n_cracked = 0;
+
+    for (size_t i = 0; i < n_targets; i++)
+    {
+        if (targets[i].cracked) continue;
+
+        size_t      val_len = 0;
+        const char *val     = rainbow_lookup(&rmap, targets[i].hash_hex,
+                                             &val_len);
+
+        if (val == NULL) continue;
+
+        size_t copy_len = val_len < 255 ? val_len : 255;
+        memcpy(targets[i].plaintext, val, copy_len);
+        targets[i].plaintext[copy_len] = '\0';
+        targets[i].cracked = 1;
+        n_cracked++;
+
+        output_print_crack(cfg, &targets[i]);
+    }
+
+    rainbow_free(&rmap);
+    return n_cracked;
 }
