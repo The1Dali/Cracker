@@ -37,6 +37,9 @@ static void print_usage(const char *prog_name)
         "                    ?a = all,        ?? = literal ?\n"
         "                  Example: --mask '?u?l?l?l?d?d'\n"
         "  --rainbow <path> Rainbow table file (hash:plaintext per line)\n"
+        "  --session <path> Session checkpoint file. Saves progress and\n"
+        "                   resumes from this file on the next run.\n"
+        "                   Only supported for dictionary attack.\n"
         "  -o <path>     Write cracked pairs to file\n"
         "  -v            Verbose — show live progress\n"
         "  -b            Benchmark — measure hash speed for all algorithms and exit\n"
@@ -118,6 +121,11 @@ int main(int argc, char *argv[])
             if (i + 1 >= argc) { fprintf(stderr, "Error: --rainbow requires a value\n"); return 1; }
             strncpy(cfg.rainbow_path, argv[++i], sizeof(cfg.rainbow_path) - 1);
             cfg.mode = ATTACK_RAINBOW;
+        }
+        else if (strcmp(argv[i], "--session") == 0)
+        {
+            if (i + 1 >= argc) { fprintf(stderr, "Error: --session requires a value\n"); return 1; }
+            strncpy(cfg.session_path, argv[++i], sizeof(cfg.session_path) - 1);
         }
         else if (strcmp(argv[i], "-o") == 0)
         {
