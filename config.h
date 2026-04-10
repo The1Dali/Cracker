@@ -15,7 +15,7 @@ typedef enum
     ATTACK_BRUTEFORCE  = 1,
     ATTACK_AUTO        = 2,
     ATTACK_MASK        = 3,
-    ATTACK_AUTODETECT  = 4,   
+    ATTACK_AUTODETECT  = 4,  
     ATTACK_RAINBOW     = 5,   
 } AttackMode;
 
@@ -39,6 +39,7 @@ typedef struct
     char        outfile[512];
     char        mask[256];
     char        rainbow_path[512];
+    char        session_path[512];
     int         min_len;
     int         max_len;
     int         verbose;
