@@ -13,6 +13,7 @@
 #include "output.h"
 #include "rule.h"
 #include "rainbow.h"
+#include "session.h"
 
 #define NUM_THREADS 4
 
@@ -186,20 +187,43 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
 
     close(fd);
 
-    _Atomic int     n_cracked = 0;
+    Session     sess;
+    const char *start_pos = map;
+    int         base_cracked = 0;
+
+    if (cfg->session_path[0] != '\0')
+    {
+        if (session_restore(cfg->session_path, &sess, targets, n_targets) == 0)
+        {
+            fprintf(stderr, "[*] Resuming from offset %zu (%d previously cracked)\n",
+                    sess.wordlist_offset, sess.n_cracked);
+            start_pos    = map + sess.wordlist_offset;
+            base_cracked = sess.n_cracked;
+        }
+        else
+        {
+            fprintf(stderr, "[*] No checkpoint found — starting fresh\n");
+        }
+    }
+
+    _Atomic int     n_cracked = base_cracked;
     pthread_mutex_t mutex     = PTHREAD_MUTEX_INITIALIZER;
 
-    size_t     slice_size = file_size / NUM_THREADS;
+    const char *end         = map + file_size;
+    size_t      region_size = (size_t)(end - start_pos);
+    size_t      slice_size  = (region_size > 0)
+                              ? region_size / NUM_THREADS
+                              : 0;
+
     pthread_t  threads[NUM_THREADS];
     WorkerArgs args[NUM_THREADS];
 
     for (int t = 0; t < NUM_THREADS; t++)
     {
-        const char *raw_start = map + (size_t)t * slice_size;
-
-        const char *raw_end = (t == NUM_THREADS - 1)
-                              ? map + file_size
-                              : map + (size_t)(t + 1) * slice_size;
+        const char *raw_start = start_pos + (size_t)t * slice_size;
+        const char *raw_end   = (t == NUM_THREADS - 1)
+                                ? end
+                                : start_pos + (size_t)(t + 1) * slice_size;
 
         args[t].slice_start = align_to_next_line(raw_start, map,
                                                   map + file_size);
@@ -223,11 +247,20 @@ int run_dictionary(const Config *cfg, Target *targets, size_t n_targets)
     }
 
     pthread_mutex_destroy(&mutex);
+
+    int final_cracked = atomic_load(&n_cracked);
+
+    if (cfg->session_path[0] != '\0')
+    {
+        session_save(cfg->session_path, file_size,
+                     targets, n_targets, final_cracked);
+        fprintf(stderr, "[*] Session saved to %s\n", cfg->session_path);
+    }
+
     munmap((void *)map, file_size);
 
     if (cfg->verbose) fprintf(stderr, "\n");
-
-    return atomic_load(&n_cracked);
+    return final_cracked;
 }
 
 int run_bruteforce(const Config *cfg, Target *targets, size_t n_targets)
@@ -516,7 +549,7 @@ int run_mask(const Config *cfg, Target *targets, size_t n_targets)
             indices[pos] = 0;
             pos--;
         }
-        if (pos < 0) break;   
+        if (pos < 0) break;    
     }
 
     if (cfg->verbose) fprintf(stderr, "\n");
