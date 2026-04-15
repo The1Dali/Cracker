@@ -2,7 +2,7 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -g -O2
 LDFLAGS = -lssl -lcrypto
 
-SRCS = main.c hash.c hashfile.c attack.c output.c rule.c
+SRCS = main.c hash.c hashfile.c attack.c output.c rule.c session.c
 OBJS = $(SRCS:.c=.o)
 TARGET = cracker
 
