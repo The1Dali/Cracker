@@ -2,6 +2,7 @@
 #include <string.h>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
+#include <openssl/md4.h>
 #include "hash.h"
 
 static void bytes_to_hex(const unsigned char *bytes, size_t len, char *out)
@@ -32,17 +33,24 @@ size_t hex_to_bytes(const char *hex, unsigned char *out)
 
 static void ntlm_hash(const unsigned char *input, size_t len, unsigned char *out)
 {
-    (void)input;
-    (void)len;
-    memset(out, 0, 16);
+    unsigned char utf16[510];
+    size_t utf16_len = 0;
+
+    for (size_t i = 0; i < len && utf16_len + 2 <= sizeof(utf16); i++)
+    {
+        utf16[utf16_len++] = input[i];
+        utf16[utf16_len++] = 0x00;
+    }
+
+    MD4(utf16, utf16_len, out);
 }
 
 const HashDef hash_table[] =
 {
-    { "MD5",     16, (HashFn)MD5    },
-    { "SHA-256", 32, (HashFn)SHA256 },
-    { "SHA-512", 64, (HashFn)SHA512 },
-    { "NTLM",   16, ntlm_hash      },
+     { "MD5",     16, (HashFn)MD5    },
+     { "SHA-256", 32, (HashFn)SHA256 },
+     { "SHA-512", 64, (HashFn)SHA512 },
+     { "NTLM",   16, ntlm_hash      },
 };
 
 const size_t hash_table_size = sizeof(hash_table) / sizeof(hash_table[0]);
